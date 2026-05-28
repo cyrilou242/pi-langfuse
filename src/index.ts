@@ -527,6 +527,30 @@ async function finalizePrompt(config: Config | undefined, flush = false) {
 		},
 	});
 
+	// Trace-level evaluation scores (tool health, turn count). Wraps in canTrace
+	// because score() requires a live client + configured keys.
+	if (config && canTrace(config) && promptState.trace) {
+		try {
+			const lf = await getClient(config);
+			const calls = promptState.toolCalls;
+			const errors = promptState.toolErrors;
+			const successRate = calls > 0 ? (calls - errors) / calls : 1;
+			const traceId = promptState.trace.id;
+
+			lf.score({ name: "tool_call_count", value: calls, traceId });
+			lf.score({ name: "turn_count", value: promptState.turns, traceId });
+			lf.score({ name: "total_tool_errors", value: errors, traceId });
+			lf.score({ name: "tool_success_rate", value: successRate, traceId });
+			lf.score({
+				name: "session_had_errors",
+				value: errors > 0 ? 1 : 0,
+				traceId,
+			});
+		} catch (e) {
+			console.warn("📊 Langfuse: Failed to send eval scores", e);
+		}
+	}
+
 	if (flush) {
 		await flushClient();
 	}
